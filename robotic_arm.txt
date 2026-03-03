@@ -1,0 +1,24 @@
+IR SENSOR CONFIGURATION	
+   
+           STM32
+          ┌────────────┐
+3.3V ─────┼── TX VCC
+           ├── RX VCC
+GND  ─────┼── TX GND
+           ├── RX GND
+PA1  ─────┼── TX DAT
+PA0  ◄────┼── RX OUT
+          └────────────┘
+
+TX )))  IR LIGHT  ))) RX
+
+| Module | MCU Connection |
+| ------ | -------------- |
+| TX VCC | 3.3V           |
+| TX GND | GND            |
+| TX DAT | GPIO OUTPUT    |
+| RX VCC | 3.3V           |
+| RX GND | GND            |
+| RX OUT | GPIO INPUT     |
+
+
