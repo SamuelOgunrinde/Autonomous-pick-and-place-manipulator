@@ -20,36 +20,11 @@
 #include "main.h"
 #include "tim.h"
 #include "gpio.h"
-
-
-/* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
 #include "servo.h"
-/* USER CODE END Includes */
-
-/* Private typedef -----------------------------------------------------------*/
-/* USER CODE BEGIN PTD */
-
-/* USER CODE END PTD */
-
-/* Private define ------------------------------------------------------------*/
-/* USER CODE BEGIN PD */
-
-/* USER CODE END PD */
-
-/* Private macro -------------------------------------------------------------*/
-/* USER CODE BEGIN PM */
-
-/* USER CODE END PM */
-
-/* Private variables ---------------------------------------------------------*/
-
-/* USER CODE BEGIN PV */
-
-/* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
+
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -58,26 +33,12 @@ void SystemClock_Config(void);
 /* USER CODE BEGIN 0 */
 
 /* USER CODE END 0 */
-
-/**
-  * @brief  The application entry point.
-  * @retval int
-  */
 int main(void)
 {
-
-  /* USER CODE BEGIN 1 */
-
-  /* USER CODE END 1 */
-
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
-
-  /* USER CODE BEGIN Init */
-
-  /* USER CODE END Init */
 
   /* Configure the system clock */
   SystemClock_Config();
@@ -89,13 +50,9 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_TIM2_Init();
+
   /* USER CODE BEGIN 2 */
   Servo_Init(); // Start PWM Channels for servos
-
-  Servo_SetAngle(0, 0);
-  Servo_SetAngle(1, 0);
-  Servo_SetAngle(2, 0);
-  Servo_SetAngle(3,	180);
 
   /* USER CODE END 2 */
 
@@ -104,9 +61,8 @@ int main(void)
   while (1)
   {
 
-	  Servo_Update();
-	  HAL_Delay(1000);
-
+	  	  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, 2000);
+//		  HAL_Delay(1000);
 	  }
 
     /* USER CODE END WHILE */
@@ -153,11 +109,6 @@ void SystemClock_Config(void)
     Error_Handler();
   }
 }
-
-/* USER CODE BEGIN 4 */
-
-/* USER CODE END 4 */
-
 /**
   * @brief  This function is executed in case of error occurrence.
   * @retval None
