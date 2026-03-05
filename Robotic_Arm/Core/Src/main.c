@@ -18,6 +18,9 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "tim.h"
+#include "gpio.h"
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "bsp.h"
@@ -82,15 +85,14 @@ int main(void)
   BSP_Init();
   /* USER CODE END SysInit */
 
-  /* Initialize all configured peripherals */
-
   /* USER CODE BEGIN 2 */
-  Servo_Init(); // Start PWM Channels for servos
-
-  Servo_SetAngle(0, 0);
-  Servo_SetAngle(1, 0);
-  Servo_SetAngle(2, 0);
-  Servo_SetAngle(3,	180);
+  IR_Init();
+//  Servo_Init(); // Start PWM Channels for servos
+//
+//  Servo_SetAngle(0, 0);
+//  Servo_SetAngle(1, 0);
+//  Servo_SetAngle(2, 0);
+//  Servo_SetAngle(3,	180);
 
   /* USER CODE END 2 */
 
@@ -98,11 +100,10 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-
-	  Servo_Update();
-	  HAL_Delay(1000);
-
-	  }
+	  IR_Update();
+//	  Servo_Update();
+//	  HAL_Delay(1000);
+  }
 
     /* USER CODE END WHILE */
 
