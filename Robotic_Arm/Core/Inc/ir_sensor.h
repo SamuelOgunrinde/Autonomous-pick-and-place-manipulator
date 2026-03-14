@@ -10,6 +10,5 @@
 void IR_Init(void);
 void IR_Stop(void);
 uint8_t IR_Detected(void);
-void IR_Update(void);
 
 #endif

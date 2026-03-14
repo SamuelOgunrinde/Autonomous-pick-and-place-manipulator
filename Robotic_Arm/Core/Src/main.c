@@ -1,60 +1,315 @@
-/* USER CODE BEGIN Header */
-/**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2026 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
-/* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
-#include "main.h"
-#include "tim.h"
-#include "gpio.h"
-
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "bsp.h"
+#include "qpc.h"
 /* USER CODE END Includes */
-
-/* Private typedef -----------------------------------------------------------*/
-/* USER CODE BEGIN PTD */
-
-/* USER CODE END PTD */
-
-/* Private define ------------------------------------------------------------*/
-/* USER CODE BEGIN PD */
-
-/* USER CODE END PD */
-
-/* Private macro -------------------------------------------------------------*/
-/* USER CODE BEGIN PM */
-
-/* USER CODE END PM */
-
-/* Private variables ---------------------------------------------------------*/
-
-/* USER CODE BEGIN PV */
-
-/* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-/* USER CODE BEGIN PFP */
-
-/* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+// Active objects
+typedef struct {
+	QActive super;
+} RobotController;
+
+typedef struct {
+	QActive super;
+	QTimeEvt servoTimer;
+} ServoController;
+
+typedef struct {
+	QActive super;
+	QTimeEvt pollTimer;
+} IRSensor;
+
+// Servo movement event
+typedef struct {
+	QEvt super;
+	uint16_t angle[4];
+} ServoMoveEvt;
+
+// Prototype declarations
+void sendMove(RobotController *me, const uint16_t move[4]);
+void RobotController_ctor(RobotController * const me);
+void ServoController_ctor(ServoController * const me);
+void IRSensor_ctor(IRSensor * const me);
+QState Robot_initial(RobotController * const me, void const * const par);
+QState ServoController_initial(ServoController * const me, void const * const par);
+QState IRSensor_initial(IRSensor * const me, void const * const par);
+QState Robot_idle(RobotController * const me, QEvt const * const e);
+QState Robot_move_to_pick(RobotController * const me, QEvt const * const e);
+QState Robot_grip(RobotController * const me, QEvt const * const e);
+QState Robot_lift(RobotController * const me, QEvt const * const e);
+QState Robot_move_to_place(RobotController * const me, QEvt const * const e);
+QState Robot_release(RobotController * const me, QEvt const * const e);
+QState Robot_return_home(RobotController * const me, QEvt const * const e);
+QState ServoController_idle(ServoController * const me, QEvt const * const e);
+QState IRSensor_monitor(IRSensor * const me, QEvt const * const e);
+
+// Predefined servo movements
+const uint16_t MOVE_HOME[4] = {0, 180, 0, 0};
+const uint16_t MOVE_PICK[4] = {0, 90, 0, 0};
+const uint16_t MOVE_GRIP[4] = {0, 150, 0, 0};
+const uint16_t MOVE_LIFT[4] = {0, 90, 0, 0};
+const uint16_t MOVE_PLACE[4] = {0, 120, 0, 0};
+const uint16_t MOVE_RELEASE[4] = {0, 180, 0, 0};
+
+void sendMove(RobotController *me, const uint16_t move[4]) {
+	// Allocate an event object from an event pool
+	ServoMoveEvt *evt = Q_NEW(ServoMoveEvt, MOVE_SERVO_SIG);
+
+	for (int i = 0; i < 4; i++) {
+		evt->angle[i] = move[i];
+	}
+
+	// Post desired movement (event) to the Servo Active Object queue
+	QACTIVE_POST(AO_ServoController, &evt->super, me);
+}
+
+// Active object constructors
+void RobotController_ctor(RobotController * const me) {
+	// initialize the Active object
+	QActive_ctor(&me->super, Q_STATE_CAST(&Robot_initial));
+}
+
+void ServoController_ctor(ServoController * const me) {
+	// initialize the Active object
+    QActive_ctor(&me->super, Q_STATE_CAST(&ServoController_initial));
+    // construct the time event used for motion completion
+    QTimeEvt_ctorX(&me->servoTimer, &me->super, SERVO_DONE_SIG, 0U);
+}
+
+void IRSensor_ctor(IRSensor * const me) {
+	// initialize the Active object
+    QActive_ctor(&me->super, Q_STATE_CAST(&IRSensor_initial));
+    // construct the time event used for object detection
+    QTimeEvt_ctorX(&me->pollTimer, &me->super, POLL_SIG, 0U);
+}
+
+// Active Object Initial states
+QState Robot_initial(RobotController * const me, void const * const par) {
+    return Q_TRAN(&Robot_idle);
+}
+
+QState ServoController_initial(ServoController * const me, void const * const par) {
+    Servo_Init();
+    return Q_TRAN(&ServoController_idle);
+}
+
+QState IRSensor_initial(IRSensor * const me, void const * const par) {
+    IR_Init();
+    return Q_TRAN(&IRSensor_monitor);
+}
+
+
+QState Robot_idle(RobotController * const me, QEvt const * const e) {
+	QState status_;
+	switch(e->sig) {
+		case Q_ENTRY_SIG: {
+			status_ = Q_HANDLED();
+			break;
+		}
+		case OBJECT_DETECTED_SIG: {
+			BSP_toggleLed();
+			status_ = Q_TRAN(&Robot_move_to_pick);
+			break;
+		}
+		default: {
+			status_ = Q_SUPER(&QHsm_top);
+			break;
+		}
+	}
+	return status_;
+}
+
+QState Robot_move_to_pick(RobotController * const me, QEvt const * const e) {
+	QState status_;
+	switch(e->sig) {
+		case Q_ENTRY_SIG: {
+			sendMove(me, MOVE_PICK);
+			status_ = Q_HANDLED();
+			break;
+		}
+		case SERVO_DONE_SIG: {
+			status_ = Q_TRAN(&Robot_grip);
+			break;
+		}
+		default: {
+			status_ = Q_SUPER(&QHsm_top);
+			break;
+		}
+	}
+	return status_;
+}
+
+QState Robot_grip(RobotController * const me, QEvt const * const e) {
+	QState status_;
+	switch(e->sig) {
+		case Q_ENTRY_SIG: {
+			sendMove(me, MOVE_GRIP);
+			status_ = Q_HANDLED();
+			break;
+		}
+		case SERVO_DONE_SIG: {
+			status_ = Q_TRAN(&Robot_lift);
+			break;
+		}
+		default: {
+			status_ = Q_SUPER(&QHsm_top);
+			break;
+		}
+	}
+	return status_;
+}
+
+QState Robot_lift(RobotController * const me, QEvt const * const e) {
+	QState status_;
+	switch(e->sig) {
+		case Q_ENTRY_SIG: {
+			sendMove(me, MOVE_LIFT);
+			status_ = Q_HANDLED();
+			break;
+		}
+		case SERVO_DONE_SIG: {
+			status_ = Q_TRAN(&Robot_move_to_place);
+			break;
+		}
+		default: {
+			status_ = Q_SUPER(&QHsm_top);
+			break;
+		}
+	}
+	return status_;
+}
+
+QState Robot_move_to_place(RobotController * const me, QEvt const * const e) {
+	QState status_;
+	switch(e->sig) {
+		case Q_ENTRY_SIG: {
+			sendMove(me, MOVE_PLACE);
+			status_ = Q_HANDLED();
+			break;
+		}
+		case SERVO_DONE_SIG: {
+			status_ = Q_TRAN(&Robot_release);
+			break;
+		}
+		default: {
+			status_ = Q_SUPER(&QHsm_top);
+			break;
+		}
+	}
+	return status_;
+}
+
+QState Robot_release(RobotController * const me, QEvt const * const e) {
+	QState status_;
+	switch(e->sig) {
+		case Q_ENTRY_SIG: {
+			sendMove(me, MOVE_RELEASE);
+			status_ = Q_HANDLED();
+			break;
+		}
+		case SERVO_DONE_SIG: {
+			status_ = Q_TRAN(&Robot_return_home);
+			break;
+		}
+		default: {
+			status_ = Q_SUPER(&QHsm_top);
+			break;
+		}
+	}
+	return status_;
+}
+
+QState Robot_return_home(RobotController * const me, QEvt const * const e) {
+	QState status_;
+	switch(e->sig) {
+		case Q_ENTRY_SIG: {
+			sendMove(me, MOVE_HOME);
+			status_ = Q_HANDLED();
+			break;
+		}
+		case SERVO_DONE_SIG: {
+			status_ = Q_TRAN(&Robot_idle);
+			break;
+		}
+		default: {
+			status_ = Q_SUPER(&QHsm_top);
+			break;
+		}
+	}
+	return status_;
+}
+
+QState ServoController_idle(ServoController * const me, QEvt const * const e) {
+	QState status_;
+	switch (e->sig) {
+        case MOVE_SERVO_SIG: {
+            ServoMoveEvt const *evt = (ServoMoveEvt const *)e;
+            for (uint8_t i = 0; i < 4; i++) {
+                Servo_SetAngle(i, evt->angle[i]);
+            }
+            Servo_Update();
+            QTimeEvt_armX(&me->servoTimer, BSP_TICKS_PER_SEC/2, 0U);
+            status_ = Q_HANDLED();
+            break;
+        }
+        case SERVO_DONE_SIG: {
+        	QACTIVE_POST(AO_RobotController, Q_NEW(QEvt, SERVO_DONE_SIG), me);
+        	status_ = Q_HANDLED();
+        	break;
+        }
+        default: {
+        	status_ = Q_SUPER(&QHsm_top);
+        	break;
+        }
+	}
+    return status_;
+}
+
+QState IRSensor_monitor(IRSensor * const me, QEvt const * const e) {
+	QState status_;
+	switch (e->sig) {
+		case Q_ENTRY_SIG: {
+			// sample sensor every 20 ms
+			QTimeEvt_armX(&me->pollTimer, BSP_TICKS_PER_SEC/10, BSP_TICKS_PER_SEC/50);
+			status_ = Q_HANDLED();
+			break;
+		}
+		case POLL_SIG: {
+		if (IR_Detected()) {
+			/* send detection event to robot */
+			QACTIVE_POST(AO_RobotController, Q_NEW(QEvt, OBJECT_DETECTED_SIG),
+					me);
+		}
+		status_ = Q_HANDLED();
+		break;
+	}
+		default: {
+			status_ = Q_SUPER(&QHsm_top);
+			break;
+		}
+	}
+	return status_;
+}
+
+
+static QEvt const *RobotController_queue[10]; // Memory buffer for the private event queue of the active object
+static RobotController robotcontroller; // Instance of the active object
+QActive *AO_RobotController = &robotcontroller.super; // Pointer to the Active Object Super class
+
+static QEvt const *ServoController_queue[10]; // Memory buffer for the private event queue of the active object
+static ServoController servocontroller; // Instance of the active object
+QActive *AO_ServoController = &servocontroller.super; // Pointer to the Active Object Super class
+
+static QEvt const *IRSensor_queue[10]; // Memory buffer for the private event queue of the active object
+static IRSensor irsensor; // Instance of the active object
+QActive *AO_IRSensor = &irsensor.super; // Pointer to the Active Object Super class
 
 /* USER CODE END 0 */
 
@@ -65,51 +320,60 @@ void SystemClock_Config(void);
 int main(void)
 {
 
-  /* USER CODE BEGIN 1 */
-
-  /* USER CODE END 1 */
-
-  /* MCU Configuration--------------------------------------------------------*/
-
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
-
-  /* USER CODE BEGIN Init */
-
-  /* USER CODE END Init */
-
   /* Configure the system clock */
   SystemClock_Config();
-
   /* USER CODE BEGIN SysInit */
   BSP_Init();
+  QF_init();
   /* USER CODE END SysInit */
 
   /* USER CODE BEGIN 2 */
-  IR_Init();
-//  Servo_Init(); // Start PWM Channels for servos
-//
-//  Servo_SetAngle(0, 0);
-//  Servo_SetAngle(1, 0);
-//  Servo_SetAngle(2, 0);
-//  Servo_SetAngle(3,	180);
 
+  // event pool
+  // small events
+  static QF_MPOOL_EL(QEvt) smallEvtPool[20];
+
+  // servo movement events
+  static QF_MPOOL_EL(ServoMoveEvt) servoEvtPool[10];
+
+  QF_poolInit(smallEvtPool,
+               sizeof(smallEvtPool),
+               sizeof(smallEvtPool[0]));
+
+  QF_poolInit(servoEvtPool,
+              sizeof(servoEvtPool),
+              sizeof(servoEvtPool[0]));
+
+  // create AO and start it
+  RobotController_ctor(&robotcontroller);
+  ServoController_ctor(&servocontroller);
+  IRSensor_ctor(&irsensor);
+
+  QACTIVE_START(AO_RobotController,
+		  1U,
+		  RobotController_queue,
+		  sizeof(RobotController_queue)/sizeof(RobotController_queue[0]),
+		  (void *)0, 0U,
+		  (void *)0);
+  QACTIVE_START(AO_ServoController,
+  		  2U,
+  		  ServoController_queue,
+  		  sizeof(ServoController_queue)/sizeof(ServoController_queue[0]),
+  		  (void *)0, 0U,
+  		  (void *)0);
+  QACTIVE_START(AO_IRSensor,
+  		  3U,
+  		  IRSensor_queue,
+  		  sizeof(IRSensor_queue)/sizeof(IRSensor_queue[0]),
+  		  (void *)0, 0U,
+  		  (void *)0);
+
+  return QF_run();
   /* USER CODE END 2 */
+ }
 
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-	  IR_Update();
-//	  Servo_Update();
-//	  HAL_Delay(1000);
-  }
-
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
-  }
-  /* USER CODE END 3 */
 
 /**
   * @brief System Clock Configuration
